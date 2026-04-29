@@ -14,6 +14,8 @@ public partial class LogConsoleHost : Node
     private LogConsolePopup? popup;
     private int renderedVersion = -1;
     private bool polledShortcutWasDown;
+    private bool embeddingModeChanged;
+    private bool originalGuiEmbedSubwindows;
 
     private static bool pendingOpen;
     private static bool installScheduled;
@@ -36,10 +38,15 @@ public partial class LogConsoleHost : Node
 
     public static void Install()
     {
+        DisplayDiagnostics.LogDisplaySnapshot(
+            $"Host.Install start ShowOnStartup={LogConsoleSettings.ShowOnStartup} UseNative={LogConsoleSettings.UseNativeExternalWindow} DefaultOpenScreen=\"{LogConsoleSettings.DefaultOpenScreen}\"",
+            force: true);
+
         if (Instance is { } current)
         {
             if (!current.IsQueuedForDeletion() && current.IsInsideTree())
             {
+                DisplayDiagnostics.LogWindowState("Host.Install reuse existing instance", current.popup, current.GetTree()?.Root);
                 current.EnsurePopupCreated("Install reuse");
                 return;
             }
@@ -66,6 +73,7 @@ public partial class LogConsoleHost : Node
             Instance = existing;
             existing.ConfigureInputProcessing();
             RegisterRuntimeHotkeys();
+            DisplayDiagnostics.LogWindowState("Host.Install found existing node", existing.popup, existing.GetTree()?.Root);
             existing.EnsurePopupCreated("Install existing");
             return;
         }
@@ -127,6 +135,7 @@ public partial class LogConsoleHost : Node
             RegisterRuntimeHotkeys();
             installScheduled = false;
             ModLogger.Info($"JmcLogConsoleHost 已实际 AddChild。Parent={parent.GetPath()} InsideTree={host.IsInsideTree()}，准备直接创建 Window。");
+            DisplayDiagnostics.LogWindowState("Host.DeferredAddHost after AddChild before popup", host.popup, host.GetTree()?.Root);
 
             host.EnsurePopupCreated("DeferredAddHost after AddChild");
 
@@ -151,6 +160,7 @@ public partial class LogConsoleHost : Node
 
         if (Instance is { } current && !current.IsQueuedForDeletion())
         {
+            current.RestoreWindowEmbeddingMode();
             current.QueueFree();
         }
 
@@ -215,6 +225,7 @@ public partial class LogConsoleHost : Node
             Instance = null;
         }
 
+        RestoreWindowEmbeddingMode();
         installScheduled = false;
         base._ExitTree();
     }
@@ -429,8 +440,11 @@ public partial class LogConsoleHost : Node
 
     private void ApplyWindowEmbeddingMode()
     {
+        DisplayDiagnostics.LogWindowState("Host.ApplyWindowEmbeddingMode before", popup, GetTree()?.Root);
+
         if (!LogConsoleSettings.UseNativeExternalWindow)
         {
+            RestoreWindowEmbeddingMode();
             return;
         }
 
@@ -440,18 +454,49 @@ public partial class LogConsoleHost : Node
             return;
         }
 
+        originalGuiEmbedSubwindows = root.GuiEmbedSubwindows;
+        embeddingModeChanged = true;
         root.GuiEmbedSubwindows = false;
         ModLogger.Info("JmcLogConsole 已关闭 Root.GuiEmbedSubwindows，后续 Window 应尝试作为原生系统窗口创建。");
+        DisplayDiagnostics.LogWindowState("Host.ApplyWindowEmbeddingMode after root.GuiEmbedSubwindows=false", popup, root);
+    }
+
+    private void RestoreWindowEmbeddingMode()
+    {
+        if (!embeddingModeChanged)
+        {
+            return;
+        }
+
+        try
+        {
+            Window? root = GetTree()?.Root ?? (Engine.GetMainLoop() as SceneTree)?.Root;
+            if (root != null && !root.IsQueuedForDeletion())
+            {
+                root.GuiEmbedSubwindows = originalGuiEmbedSubwindows;
+                ModLogger.Info($"JmcLogConsole 已恢复 Root.GuiEmbedSubwindows={originalGuiEmbedSubwindows}。");
+            }
+        }
+        catch (Exception ex)
+        {
+            ModLogger.Warn($"JmcLogConsole 恢复 Root.GuiEmbedSubwindows 失败：{ex.Message}");
+        }
+        finally
+        {
+            embeddingModeChanged = false;
+        }
     }
 
     private void EnsurePopupCreated(string reason)
     {
         if (popup != null && !popup.IsQueuedForDeletion())
         {
+            DisplayDiagnostics.LogWindowState($"Host.EnsurePopupCreated reuse reason={reason}", popup, GetTree()?.Root);
             return;
         }
 
         ApplyWindowEmbeddingMode();
+        DisplayDiagnostics.LogWindowState($"Host.EnsurePopupCreated before new popup reason={reason}", popup, GetTree()?.Root);
 
         popup = new LogConsolePopup
         {
@@ -467,6 +512,7 @@ public partial class LogConsoleHost : Node
         LogCaptureService.Changed += OnLogCaptureChanged;
 
         ModLogger.Info($"JmcLogConsoleWindow 已由 Host 直接创建。Reason={reason} HostInsideTree={IsInsideTree()} PopupInsideTree={popup.IsInsideTree()} PopupVisible={popup.Visible}");
+        DisplayDiagnostics.LogWindowState($"Host.EnsurePopupCreated after AddChild reason={reason}", popup, GetTree()?.Root);
     }
 
     private static void OnLogCaptureChanged()
@@ -511,6 +557,7 @@ public partial class LogConsoleHost : Node
 
     private void TogglePopup()
     {
+        DisplayDiagnostics.LogWindowState("Host.TogglePopup begin", popup, GetTree()?.Root);
         EnsurePopupCreated("TogglePopup");
 
         if (popup == null)
@@ -532,6 +579,7 @@ public partial class LogConsoleHost : Node
 
     private void OpenPopup()
     {
+        DisplayDiagnostics.LogWindowState("Host.OpenPopup begin", popup, GetTree()?.Root);
         EnsurePopupCreated("OpenPopup");
 
         if (popup == null)

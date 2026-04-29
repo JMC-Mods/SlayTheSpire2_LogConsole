@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Text.RegularExpressions;
 using Godot;
 using JmcLogConsole.Core;
 using JmcModLib.Utils;
@@ -10,14 +11,22 @@ namespace JmcLogConsole.UI;
 public partial class LogConsolePopup : Window
 {
     private static readonly Vector2I DefaultMinSize = new(720, 420);
+    private static readonly TimeSpan FilterRegexTimeout = TimeSpan.FromMilliseconds(100.0);
 
+    private LineEdit? filterInput;
+    private Label? filterStatus;
     private RichTextLabel? output;
     private int renderedVersion = -1;
     private bool initialized;
     private bool openedOnce;
+    private string filterPattern = string.Empty;
+    private Regex? filterRegex;
+    private string? filterError;
     private Vector2I lastAppliedFontWindowSize = new(-1, -1);
+    private int lastAppliedFontScreen = -1;
     private int lastAppliedLogFontSize = -1;
     private int lastAppliedControlFontSize = -1;
+    private bool firstNativeDpiRefreshDone;
 
     public override void _Ready()
     {
@@ -37,7 +46,6 @@ public partial class LogConsolePopup : Window
         Title = "Jmc Log Console - 日志窗口";
         Size = GetConfiguredDefaultWindowSize();
         MinSize = DefaultMinSize;
-        ForceNative = true;
         Transient = false;
         TransientToFocused = false;
         PopupWindow = false;
@@ -45,6 +53,7 @@ public partial class LogConsolePopup : Window
         Borderless = false;
         Unresizable = false;
         AlwaysOnTop = false;
+        ApplyContentScaleReset();
         Visible = false;
 
         CloseRequested += ClosePopup;
@@ -54,11 +63,15 @@ public partial class LogConsolePopup : Window
         ApplyFontSettingsTree();
 
         ModLogger.Info($"JmcLogConsoleWindow 初始化完成。ForceNative={ForceNative} Transient={Transient} Size={Size} AutoFont={LogConsoleSettings.AutoScaleFont} AutoWindow={LogConsoleSettings.AutoScaleWindowSize}");
+        DisplayDiagnostics.LogWindowState("Popup.InitializeIfNeeded", this, GetSceneRoot());
     }
 
     public override void _Process(double delta)
     {
-        if (!Visible || !LogConsoleSettings.AutoScaleFont || Size == lastAppliedFontWindowSize)
+        int activeScreen = GetWindowCurrentScreen();
+        if (!Visible
+            || !LogConsoleSettings.AutoScaleFont
+            || (Size == lastAppliedFontWindowSize && activeScreen == lastAppliedFontScreen))
         {
             return;
         }
@@ -83,8 +96,24 @@ public partial class LogConsolePopup : Window
     public void Open()
     {
         InitializeIfNeeded();
+        Window? root = GetRoot();
+        DisplayDiagnostics.LogDisplaySnapshot("Popup.Open begin", force: true);
+        DisplayDiagnostics.LogWindowState(
+            "Popup.Open begin",
+            this,
+            root,
+            selectedOption: LogConsoleSettings.DefaultOpenScreen);
 
-        Size = Size.X <= 0 || Size.Y <= 0 ? GetConfiguredDefaultWindowSize() : Size;
+        bool firstOpen = !openedOnce;
+        int targetScreen = firstOpen ? ApplyConfiguredDefaultScreen() : CurrentScreen;
+        DisplayDiagnostics.LogWindowState(
+            $"Popup.Open resolved firstOpen={firstOpen} openedOnce={openedOnce}",
+            this,
+            root,
+            targetScreen,
+            LogConsoleSettings.DefaultOpenScreen);
+
+        Size = firstOpen || Size.X <= 0 || Size.Y <= 0 ? GetConfiguredDefaultWindowSize() : Size;
         ApplyFontSettingsTree();
 
         if (!Visible)
@@ -95,8 +124,22 @@ public partial class LogConsolePopup : Window
             }
             else
             {
-                PopupCentered(Size);
+                CurrentScreen = targetScreen;
+                if (LogConsoleSettings.UseNativeExternalWindow
+                    && TryGetCenteredRect(targetScreen, Size, out Rect2I popupRect))
+                {
+                    Position = popupRect.Position;
+                    Size = popupRect.Size;
+                    Popup(popupRect);
+                }
+                else
+                {
+                    PopupCentered(Size);
+                }
+
                 openedOnce = true;
+                ApplyConfiguredScreenPlacement(targetScreen, Size, "first show immediate");
+                ScheduleConfiguredScreenPlacement(targetScreen, Size);
             }
         }
         else
@@ -109,6 +152,225 @@ public partial class LogConsolePopup : Window
         RequestAttention();
 
         ModLogger.Info($"JmcLogConsoleWindow.Open() Visible={Visible} Size={Size} Embedded={IsEmbedded()} WindowId={GetWindowId()} LogFont={lastAppliedLogFontSize} ControlFont={lastAppliedControlFontSize} Screen={GetCurrentScreenSize()} Dpi={GetCurrentScreenDpi()}");
+        DisplayDiagnostics.LogWindowState("Popup.Open after show immediate", this, root, targetScreen);
+        Callable.From(() =>
+        {
+            DisplayDiagnostics.LogWindowState(
+                "Popup.Open after show deferred",
+                this,
+                GetRoot(),
+                targetScreen);
+        }).CallDeferred();
+    }
+
+    private void ScheduleConfiguredScreenPlacement(int targetScreen, Vector2I requestedSize)
+    {
+        if (!LogConsoleSettings.UseNativeExternalWindow || targetScreen < 0)
+        {
+            return;
+        }
+
+        Callable.From(() =>
+        {
+            ApplyConfiguredScreenPlacement(targetScreen, requestedSize, "first show deferred");
+            Callable.From(() =>
+            {
+                RefreshNativeDpiAfterFirstPlacement(targetScreen, requestedSize);
+            }).CallDeferred();
+        }).CallDeferred();
+    }
+
+    private void RefreshNativeDpiAfterFirstPlacement(int targetScreen, Vector2I requestedSize)
+    {
+        if (firstNativeDpiRefreshDone
+            || !Visible
+            || !LogConsoleSettings.UseNativeExternalWindow
+            || targetScreen == GetGameWindowScreen())
+        {
+            ApplyConfiguredScreenPlacement(targetScreen, requestedSize, "first show second deferred");
+            return;
+        }
+
+        firstNativeDpiRefreshDone = true;
+        DisplayDiagnostics.LogWindowState(
+            "Popup.RefreshNativeDpiAfterFirstPlacement before hide",
+            this,
+            GetRoot(),
+            targetScreen,
+            LogConsoleSettings.DefaultOpenScreen);
+
+        Hide();
+        Callable.From(() =>
+        {
+            if (IsQueuedForDeletion())
+            {
+                return;
+            }
+
+            Vector2I targetSize = GetWindowSizeForScreen(requestedSize, targetScreen);
+            CurrentScreen = targetScreen;
+            Size = targetSize;
+            if (TryGetCenteredRect(targetScreen, targetSize, out Rect2I rect))
+            {
+                Position = rect.Position;
+                Size = rect.Size;
+            }
+
+            ApplyContentScaleReset();
+            Show();
+            ApplyConfiguredScreenPlacement(targetScreen, Size, "first native dpi refresh");
+            GrabFocus();
+            RequestAttention();
+
+            Callable.From(() =>
+            {
+                ApplyConfiguredScreenPlacement(targetScreen, Size, "first native dpi refresh deferred");
+            }).CallDeferred();
+        }).CallDeferred();
+    }
+
+    private void ApplyConfiguredScreenPlacement(int targetScreen, Vector2I requestedSize, string reason)
+    {
+        if (IsQueuedForDeletion() || !LogConsoleSettings.UseNativeExternalWindow)
+        {
+            return;
+        }
+
+        int screenCount = GetScreenCount();
+        if (!IsValidScreen(targetScreen, screenCount))
+        {
+            DisplayDiagnostics.LogWindowState(
+                $"Popup.ApplyConfiguredScreenPlacement skipped reason={reason}",
+                this,
+                GetRoot(),
+                targetScreen,
+                LogConsoleSettings.DefaultOpenScreen);
+            return;
+        }
+
+        Vector2I targetSize = GetWindowSizeForScreen(requestedSize, targetScreen);
+        Vector2I? targetPosition = null;
+        ApplyContentScaleReset();
+        CurrentScreen = targetScreen;
+        Size = targetSize;
+        if (TryGetCenteredPosition(targetScreen, targetSize, out Vector2I position))
+        {
+            Position = position;
+            targetPosition = position;
+        }
+
+        ApplyDisplayServerWindowPlacement(targetScreen, targetSize, targetPosition);
+
+        ApplyFontSettingsTree();
+        Render(force: true);
+
+        DisplayDiagnostics.LogWindowState(
+            $"Popup.ApplyConfiguredScreenPlacement reason={reason}",
+            this,
+            GetRoot(),
+            targetScreen,
+            LogConsoleSettings.DefaultOpenScreen);
+    }
+
+    private void ApplyContentScaleReset()
+    {
+        ContentScaleMode = ContentScaleModeEnum.Disabled;
+        ContentScaleFactor = 1.0f;
+        ContentScaleSize = Vector2I.Zero;
+    }
+
+    private void ApplyDisplayServerWindowPlacement(int targetScreen, Vector2I targetSize, Vector2I? targetPosition)
+    {
+        try
+        {
+            int windowId = GetWindowId();
+            if (windowId <= 0)
+            {
+                return;
+            }
+
+            DisplayServer.WindowSetCurrentScreen(targetScreen, windowId);
+            DisplayServer.WindowSetSize(targetSize, windowId);
+            if (targetPosition.HasValue)
+            {
+                DisplayServer.WindowSetPosition(targetPosition.Value, windowId);
+            }
+        }
+        catch (Exception ex)
+        {
+            ModLogger.Warn($"JmcLogConsole 设置原生窗口显示器失败：{ex.Message}");
+        }
+    }
+
+    private static bool TryGetCenteredRect(int targetScreen, Vector2I windowSize, out Rect2I rect)
+    {
+        rect = default;
+        if (!TryGetCenteredPosition(targetScreen, windowSize, out Vector2I position))
+        {
+            return false;
+        }
+
+        rect = new Rect2I(position, windowSize);
+        return true;
+    }
+
+    private Vector2I GetWindowSizeForScreen(Vector2I requestedSize, int targetScreen)
+    {
+        Vector2I size = requestedSize.X > 0 && requestedSize.Y > 0
+            ? requestedSize
+            : GetConfiguredDefaultWindowSize();
+
+        if (!TryGetRawScreenSize(targetScreen, out Vector2I screenSize))
+        {
+            return size;
+        }
+
+        int maxWidth = Math.Max(480, screenSize.X - 120);
+        int maxHeight = Math.Max(360, screenSize.Y - 120);
+        int minWidth = Math.Min(DefaultMinSize.X, maxWidth);
+        int minHeight = Math.Min(DefaultMinSize.Y, maxHeight);
+
+        return new Vector2I(
+            Math.Clamp(size.X, minWidth, maxWidth),
+            Math.Clamp(size.Y, minHeight, maxHeight));
+    }
+
+    private static bool TryGetCenteredPosition(int targetScreen, Vector2I windowSize, out Vector2I position)
+    {
+        position = Vector2I.Zero;
+
+        try
+        {
+            Vector2I screenPosition = DisplayServer.ScreenGetPosition(targetScreen);
+            Vector2I screenSize = DisplayServer.ScreenGetSize(targetScreen);
+            if (screenSize.X <= 0 || screenSize.Y <= 0 || windowSize.X <= 0 || windowSize.Y <= 0)
+            {
+                return false;
+            }
+
+            position = new Vector2I(
+                screenPosition.X + Math.Max(0, (screenSize.X - windowSize.X) / 2),
+                screenPosition.Y + Math.Max(0, (screenSize.Y - windowSize.Y) / 2));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetRawScreenSize(int targetScreen, out Vector2I screenSize)
+    {
+        screenSize = Vector2I.Zero;
+        try
+        {
+            screenSize = DisplayServer.ScreenGetSize(targetScreen);
+            return screenSize.X > 0 && screenSize.Y > 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public void ClosePopup()
@@ -197,6 +459,41 @@ public partial class LogConsolePopup : Window
         closeButton.Pressed += ClosePopup;
         header.AddChild(closeButton);
 
+        var filterRow = new HBoxContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+        };
+        root.AddChild(filterRow);
+
+        var filterLabel = new Label
+        {
+            Text = "正则筛选"
+        };
+        filterRow.AddChild(filterLabel);
+
+        filterInput = new LineEdit
+        {
+            PlaceholderText = "Regex",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            ClearButtonEnabled = true
+        };
+        filterInput.TextChanged += OnFilterTextChanged;
+        filterRow.AddChild(filterInput);
+
+        var copyFilteredButton = new Button
+        {
+            Text = "复制显示"
+        };
+        copyFilteredButton.Pressed += CopyFilteredPlainText;
+        filterRow.AddChild(copyFilteredButton);
+
+        filterStatus = new Label
+        {
+            Text = string.Empty,
+            SizeFlagsHorizontal = Control.SizeFlags.ShrinkEnd
+        };
+        filterRow.AddChild(filterStatus);
+
         root.AddChild(new HSeparator());
 
         output = new RichTextLabel
@@ -226,6 +523,7 @@ public partial class LogConsolePopup : Window
 
         if (entries.Length == 0)
         {
+            UpdateFilterStatus(0, 0);
             output.PushColor(new Color(0.54f, 0.57f, 0.60f));
             output.AddText("暂无日志。No logs yet. 支持 Unicode：中文 / 日本語 / 한국어 / Ω / ✅");
             output.Pop();
@@ -233,7 +531,19 @@ public partial class LogConsolePopup : Window
             return;
         }
 
-        foreach (LogEntry entry in entries)
+        LogEntry[] visibleEntries = GetFilteredEntries(entries);
+        UpdateFilterStatus(entries.Length, visibleEntries.Length);
+
+        if (visibleEntries.Length == 0)
+        {
+            output.PushColor(new Color(0.54f, 0.57f, 0.60f));
+            output.AddText(filterError ?? "没有匹配的日志。");
+            output.Pop();
+            renderedVersion = LogCaptureService.Version;
+            return;
+        }
+
+        foreach (LogEntry entry in visibleEntries)
         {
             output.PushColor(ColorFor(entry.Level));
             output.AddText(BuildLine(entry));
@@ -243,6 +553,100 @@ public partial class LogConsolePopup : Window
 
         renderedVersion = LogCaptureService.Version;
         output.ScrollToLine(Math.Max(0, output.GetLineCount() - 1));
+    }
+
+    private void OnFilterTextChanged(string value)
+    {
+        filterPattern = value ?? string.Empty;
+        filterRegex = null;
+        filterError = null;
+        Render(force: true);
+    }
+
+    private LogEntry[] GetFilteredEntries(LogEntry[] entries)
+    {
+        if (string.IsNullOrWhiteSpace(filterPattern))
+        {
+            return entries;
+        }
+
+        filterError = null;
+        if (!TryGetFilterRegex(out Regex? maybeRegex) || maybeRegex == null)
+        {
+            return [];
+        }
+
+        Regex regex = maybeRegex;
+        var filtered = new List<LogEntry>(entries.Length);
+        foreach (LogEntry entry in entries)
+        {
+            string line = BuildLine(entry);
+            try
+            {
+                if (regex.IsMatch(line))
+                {
+                    filtered.Add(entry);
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                filterError = "正则筛选超时。";
+                return [];
+            }
+        }
+
+        return [.. filtered];
+    }
+
+    private bool TryGetFilterRegex(out Regex? regex)
+    {
+        regex = null;
+
+        if (filterRegex != null)
+        {
+            regex = filterRegex;
+            return true;
+        }
+
+        try
+        {
+            filterRegex = new Regex(
+                filterPattern,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                FilterRegexTimeout);
+            regex = filterRegex;
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            filterError = "正则无效：" + ex.Message;
+            return false;
+        }
+    }
+
+    private void UpdateFilterStatus(int totalCount, int visibleCount)
+    {
+        if (filterStatus == null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filterError))
+        {
+            filterStatus.Text = filterError;
+            filterStatus.Modulate = new Color(1.00f, 0.42f, 0.42f);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(filterPattern))
+        {
+            filterStatus.Text = $"{totalCount}";
+            filterStatus.Modulate = new Color(0.72f, 0.75f, 0.76f);
+            return;
+        }
+
+        filterStatus.Text = $"{visibleCount}/{totalCount}";
+        filterStatus.Modulate = new Color(0.72f, 0.89f, 0.78f);
     }
 
     private static string BuildLine(LogEntry entry)
@@ -302,6 +706,11 @@ public partial class LogConsolePopup : Window
         DisplayServer.ClipboardSet(BuildPlainText(LogCaptureService.Snapshot()));
     }
 
+    private void CopyFilteredPlainText()
+    {
+        DisplayServer.ClipboardSet(BuildPlainText(GetFilteredEntries(LogCaptureService.Snapshot())));
+    }
+
     private Vector2I GetConfiguredDefaultWindowSize()
     {
         if (!LogConsoleSettings.AutoScaleWindowSize)
@@ -338,6 +747,7 @@ public partial class LogConsolePopup : Window
         ApplyOutputFontSize();
 
         lastAppliedFontWindowSize = Size;
+        lastAppliedFontScreen = GetWindowCurrentScreen();
         lastAppliedControlFontSize = controlFontSize;
     }
 
@@ -394,7 +804,7 @@ public partial class LogConsolePopup : Window
     {
         try
         {
-            return DisplayServer.ScreenGetDpi(CurrentScreen);
+            return DisplayServer.ScreenGetDpi(GetWindowCurrentScreen());
         }
         catch
         {
@@ -406,7 +816,33 @@ public partial class LogConsolePopup : Window
     {
         try
         {
-            Vector2I size = DisplayServer.ScreenGetSize(CurrentScreen);
+            int screen = GetWindowCurrentScreen();
+            Vector2I size = DisplayServer.ScreenGetSize(screen);
+            if (size.X > 0 && size.Y > 0)
+            {
+                return size;
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            Window? root = GetRoot();
+            Vector2I size = root?.Size ?? Vector2I.Zero;
+            if (size.X > 0 && size.Y > 0)
+            {
+                return size;
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            Vector2I size = DisplayServer.WindowGetSize();
             if (size.X > 0 && size.Y > 0)
             {
                 return size;
@@ -419,12 +855,166 @@ public partial class LogConsolePopup : Window
         try
         {
             Vector2 viewportSize = GetViewport()?.GetVisibleRect().Size ?? Vector2.Zero;
-            return new Vector2I((int)viewportSize.X, (int)viewportSize.Y);
+            if (viewportSize.X > 0 && viewportSize.Y > 0)
+            {
+                return new Vector2I((int)viewportSize.X, (int)viewportSize.Y);
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            return new Vector2I(
+                Math.Clamp(LogConsoleSettings.DefaultWindowWidth, 800, 2400),
+                Math.Clamp(LogConsoleSettings.DefaultWindowHeight, 500, 1600));
         }
         catch
         {
             return Vector2I.Zero;
         }
+    }
+
+    private int GetWindowCurrentScreen()
+    {
+        try
+        {
+            int windowId = GetWindowId();
+            if (windowId > 0)
+            {
+                int windowScreen = DisplayServer.WindowGetCurrentScreen(windowId);
+                if (windowScreen >= 0)
+                {
+                    return windowScreen;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return CurrentScreen;
+    }
+
+    private int ApplyConfiguredDefaultScreen()
+    {
+        int targetScreen = ResolveConfiguredDefaultScreen();
+        if (targetScreen < 0)
+        {
+            return CurrentScreen;
+        }
+
+        CurrentScreen = targetScreen;
+        return targetScreen;
+    }
+
+    private int ResolveConfiguredDefaultScreen()
+    {
+        LogConsoleSettings.DefaultOpenScreen = DisplayScreenOptions.NormalizeOption(LogConsoleSettings.DefaultOpenScreen);
+        int screenCount = GetScreenCount();
+        if (screenCount <= 0)
+        {
+            DisplayDiagnostics.LogWindowState(
+                "ResolveConfiguredDefaultScreen: screenCount<=0",
+                this,
+                GetRoot(),
+                CurrentScreen,
+                LogConsoleSettings.DefaultOpenScreen);
+            return CurrentScreen;
+        }
+
+        bool parsedScreenOption = DisplayScreenOptions.TryParseScreenIndex(LogConsoleSettings.DefaultOpenScreen, out int parsedScreen);
+        int requestedScreen = LogConsoleSettings.DefaultOpenScreen switch
+        {
+            DisplayScreenOptions.PrimaryScreen => GetPrimaryScreen(),
+            _ when parsedScreenOption => parsedScreen,
+            _ => GetGameWindowScreen()
+        };
+
+        int resolvedScreen = IsValidScreen(requestedScreen, screenCount)
+            ? requestedScreen
+            : GetGameWindowScreen();
+        ModLogger.Info(
+            $"[LogConsole.WindowDiag] ResolveConfiguredDefaultScreen option=\"{LogConsoleSettings.DefaultOpenScreen}\" screenCount={screenCount} parsed={parsedScreenOption}:{parsedScreen} requested={requestedScreen} resolved={resolvedScreen} primary={GetPrimaryScreen()} gameWindow={GetGameWindowScreen()} current={CurrentScreen}");
+        return resolvedScreen;
+    }
+
+    private int GetGameWindowScreen()
+    {
+        int screenCount = GetScreenCount();
+        Window? root = GetRoot();
+        int rootScreen = root?.CurrentScreen ?? CurrentScreen;
+
+        if (IsValidScreen(rootScreen, screenCount))
+        {
+            return rootScreen;
+        }
+
+        if (IsValidScreen(CurrentScreen, screenCount))
+        {
+            return CurrentScreen;
+        }
+
+        int primaryScreen = GetPrimaryScreen();
+        return IsValidScreen(primaryScreen, screenCount) ? primaryScreen : 0;
+    }
+
+    private Window? GetRoot()
+    {
+        try
+        {
+            if (IsInsideTree())
+            {
+                return GetTree()?.Root;
+            }
+        }
+        catch
+        {
+        }
+
+        return GetSceneRoot();
+    }
+
+    private static Window? GetSceneRoot()
+    {
+        try
+        {
+            return (Engine.GetMainLoop() as SceneTree)?.Root;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int GetScreenCount()
+    {
+        try
+        {
+            return DisplayServer.GetScreenCount();
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static int GetPrimaryScreen()
+    {
+        try
+        {
+            return DisplayServer.GetPrimaryScreen();
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool IsValidScreen(int screen, int screenCount)
+    {
+        return screen >= 0 && screen < screenCount;
     }
 
     private float GetGentleDpiFactor()

@@ -30,6 +30,24 @@ public static class LogConsoleSettings
 
     [UIToggle]
     [Config(
+        "启动时读取当前游戏日志文件",
+        group: Group,
+        Description = "开启后，日志窗口初始化时会从游戏日志文件导入本 MOD 加载前已经输出的日志。",
+        Key = "capture.import_startup_log_file",
+        Order = 21)]
+    public static bool ImportStartupLogFile = true;
+
+    [UIIntSlider(64, 8192)]
+    [Config(
+        "启动日志读取上限 KB",
+        group: Group,
+        Description = "从当前游戏日志文件末尾最多读取多少 KB。日志很长时只导入末尾部分。",
+        Key = "capture.startup_log_file_tail_kb",
+        Order = 22)]
+    public static int StartupLogFileTailKilobytes = 2048;
+
+    [UIToggle]
+    [Config(
         "启用日志窗口快捷键",
         group: Group,
         Description = "开启后响应 JmcModLib 按键绑定，以及可选的 Ctrl+Shift+L / Ctrl+Alt+L 兼容快捷键。",
@@ -63,6 +81,30 @@ public static class LogConsoleSettings
         Key = "ui.use_native_external_window",
         Order = 33)]
     public static bool UseNativeExternalWindow = true;
+
+    [UIDropdown]
+    [Config(
+        "默认打开显示器",
+        group: Group,
+        Description = "日志窗口第一次打开时所在的显示器。若选择的显示器不存在，会退回到游戏窗口所在显示器。",
+        Key = "ui.default_open_screen",
+        Order = 34)]
+    public static string DefaultOpenScreen = DisplayScreenOptions.FollowGameWindow;
+
+    public static IReadOnlyList<string> GetDefaultOpenScreenOptions()
+    {
+        DefaultOpenScreen = DisplayScreenOptions.NormalizeOption(DefaultOpenScreen);
+        return DisplayScreenOptions.GetOptions();
+    }
+
+    [UIToggle]
+    [Config(
+        "输出窗口诊断日志",
+        group: Group,
+        Description = "开启后，在游戏日志里输出显示器枚举和日志窗口打开状态，用于排查多显示器/DPI/原生窗口问题。",
+        Key = "ui.enable_window_diagnostics",
+        Order = 35)]
+    public static bool EnableWindowDiagnostics = true;
 
     [UIDropdown]
     [Config(
