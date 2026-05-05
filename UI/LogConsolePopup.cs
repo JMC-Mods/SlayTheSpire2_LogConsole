@@ -794,7 +794,7 @@ public partial class LogConsolePopup : Window
 
         logFontZoomOffset = nextSize - baseLogFontSize;
         ApplyOutputFontSettings();
-        ModLogger.Info($"JmcLogConsoleWindow 日志字体缩放：{currentSize} -> {nextSize}，偏移={logFontZoomOffset}");
+        ModLogger.Debug($"JmcLogConsoleWindow 日志字体缩放：{currentSize} -> {nextSize}，偏移={logFontZoomOffset}");
     }
 
     private int GetEffectiveLogFontSize()
@@ -1097,9 +1097,9 @@ public partial class LogConsolePopup : Window
             LogConsoleSettings.FontFamilies,
             DefaultLogFontFamilies,
             GetFontOversampling(),
-            TextServer.FontAntialiasing.Gray,
-            TextServer.Hinting.Normal,
-            TextServer.SubpixelPositioning.Auto,
+            TextServer.FontAntialiasing.Lcd,
+            TextServer.Hinting.Light,
+            TextServer.SubpixelPositioning.OneQuarter,
             400);
     }
 

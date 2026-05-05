@@ -190,7 +190,7 @@ public partial class VirtualLogView : Control
         logFont = font;
         logFontSize = Math.Clamp(fontSize, 8, 96);
         lineSpacing = Math.Clamp(spacing, 0, 32);
-        rowHeight = MathF.Max(logFontSize + lineSpacing + 6, font.GetHeight(logFontSize) + lineSpacing + 2);
+        rowHeight = MathF.Ceiling(MathF.Max(logFontSize + lineSpacing + 6, font.GetHeight(logFontSize) + lineSpacing + 2));
         ApplyRowFonts();
         LogDiagnostic($"SetLogFont font={font.GetType().Name} size={logFontSize} rowHeight={rowHeight:0.##}");
         Refresh();
@@ -544,7 +544,7 @@ public partial class VirtualLogView : Control
             return;
         }
 
-        float baseline = MathF.Max(logFontSize + 6, rowHeight - 4f);
+        float baseline = MathF.Round(MathF.Max(logFontSize + 6, rowHeight - 4f));
         DrawString(
             logFont,
             new Vector2(HorizontalPadding, baseline),
@@ -657,7 +657,7 @@ public partial class VirtualLogView : Control
 
             int absoluteRow = snapshot.FirstRow + index;
             LogRenderLine line = snapshot.Lines[index];
-            float y = index * rowHeight;
+            float y = MathF.Round(index * rowHeight);
             float contentWidth = GetContentWidth();
             float labelWidth = MathF.Max(contentWidth + horizontalOffset, GetTextPrefixWidth(line.Text, line.Text.Length) + HorizontalPadding);
 
@@ -676,8 +676,8 @@ public partial class VirtualLogView : Control
                 }
 
                 selectionBackground.Visible = true;
-                selectionBackground.Position = new Vector2(startX, y + 1f);
-                selectionBackground.Size = new Vector2(MathF.Max(2f, endX - startX), MathF.Max(1f, rowHeight - 2f));
+                selectionBackground.Position = new Vector2(MathF.Round(startX), y + 1f);
+                selectionBackground.Size = new Vector2(MathF.Max(2f, MathF.Round(endX - startX)), MathF.Max(1f, rowHeight - 2f));
                 selectionBackground.Color = SelectionColor;
                 label.Modulate = SelectedTextColor;
             }
@@ -689,8 +689,8 @@ public partial class VirtualLogView : Control
 
             label.Visible = true;
             label.Text = line.Text;
-            label.Position = new Vector2(HorizontalPadding - horizontalOffset, y);
-            label.Size = new Vector2(labelWidth, rowHeight);
+            label.Position = new Vector2(MathF.Round(HorizontalPadding - horizontalOffset), y);
+            label.Size = new Vector2(MathF.Ceiling(labelWidth), rowHeight);
         }
 
         KeepInteractiveChildrenOnTop();
