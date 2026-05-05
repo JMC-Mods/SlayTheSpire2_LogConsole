@@ -3,6 +3,8 @@ using Godot;
 using JmcLogConsole.Core;
 using JmcLogConsole.UI.Controls;
 using JmcLogConsole.ViewModels;
+using JmcModLib.Config;
+using JmcModLib.Config.Entry;
 using JmcModLib.Utils;
 using MegaCrit.Sts2.Core.Logging;
 
@@ -55,6 +57,7 @@ public partial class LogConsolePopup : Window
     private int lastAppliedControlFontSize = -1;
     private int logFontZoomOffset;
     private string lastAppliedLanguage = string.Empty;
+    private int lastAppliedRuntimeSettingsHash = int.MinValue;
     private bool firstNativeDpiRefreshDone;
 
     public override void _Ready()
@@ -89,8 +92,8 @@ public partial class LogConsolePopup : Window
         WindowInput += OnWindowInput;
 
         BuildLayout();
-        ApplyLocalizedText();
-        ApplyFontSettingsTree();
+        SubscribeRuntimeChangeEvents();
+        ApplyRuntimePresentationSettings(refreshOutput: false);
 
         ModLogger.Info($"JmcLogConsoleWindow 初始化完成。ForceNative={ForceNative} Transient={Transient} Size={Size} AutoFont={LogConsoleSettings.AutoScaleFont} AutoWindow={LogConsoleSettings.AutoScaleWindowSize}");
         DisplayDiagnostics.LogWindowState("Popup.InitializeIfNeeded", this, GetSceneRoot());
@@ -98,14 +101,9 @@ public partial class LogConsolePopup : Window
 
     public override void _Process(double delta)
     {
-        string currentLanguage = L10n.CurrentLanguage;
-        if (!string.Equals(currentLanguage, lastAppliedLanguage, StringComparison.Ordinal))
+        if (Visible && HasRuntimeSettingsChanged())
         {
-            ApplyLocalizedText();
-            if (Visible)
-            {
-                Render(force: false);
-            }
+            ApplyRuntimePresentationSettings(refreshOutput: true);
         }
 
         int activeScreen = GetWindowCurrentScreen();
@@ -118,6 +116,12 @@ public partial class LogConsolePopup : Window
 
         ApplyFontSettingsTree();
         Render(force: false);
+    }
+
+    public override void _ExitTree()
+    {
+        ConfigManager.ValueChanged -= OnConfigValueChanged;
+        L10n.UnsubscribeToLocaleChange(OnLocaleChanged);
     }
 
     private void OnWindowInput(InputEvent @event)
@@ -191,7 +195,7 @@ public partial class LogConsolePopup : Window
             LogConsoleSettings.DefaultOpenScreen);
 
         Size = firstOpen || Size.X <= 0 || Size.Y <= 0 ? GetConfiguredDefaultWindowSize() : Size;
-        ApplyFontSettingsTree();
+        ApplyRuntimePresentationSettings(refreshOutput: false);
 
         if (!Visible)
         {
@@ -605,6 +609,61 @@ public partial class LogConsolePopup : Window
         renderedVersion = LogCaptureService.Version;
     }
 
+    private void ApplyRuntimePresentationSettings(bool refreshOutput)
+    {
+        ApplyLocalizedText();
+        ApplyContentScaleReset();
+        ApplyFontSettingsTree();
+        lastAppliedRuntimeSettingsHash = GetRuntimeSettingsHash();
+
+        if (refreshOutput && Visible)
+        {
+            Render(force: false);
+        }
+    }
+
+    private bool HasRuntimeSettingsChanged()
+    {
+        return GetRuntimeSettingsHash() != lastAppliedRuntimeSettingsHash;
+    }
+
+    private static int GetRuntimeSettingsHash()
+    {
+        var hash = new HashCode();
+        hash.Add(L10n.CurrentLanguage);
+        hash.Add(LogConsoleSettings.ShowTimestamp);
+        hash.Add(LogConsoleSettings.ShowLevel);
+        hash.Add(LogConsoleSettings.ControlFontFamilies);
+        hash.Add(LogConsoleSettings.FontFamilies);
+        hash.Add(LogConsoleSettings.AutoScaleFont);
+        hash.Add(LogConsoleSettings.FontScale);
+        hash.Add(LogConsoleSettings.LogFontSize);
+        hash.Add(LogConsoleSettings.ControlFontSize);
+        hash.Add(LogConsoleSettings.LogLineSpacing);
+        return hash.ToHashCode();
+    }
+
+    private void SubscribeRuntimeChangeEvents()
+    {
+        ConfigManager.ValueChanged += OnConfigValueChanged;
+        L10n.SubscribeToLocaleChange(OnLocaleChanged);
+    }
+
+    private void OnLocaleChanged()
+    {
+        Callable.From(() => ApplyRuntimePresentationSettings(refreshOutput: Visible)).CallDeferred();
+    }
+
+    private void OnConfigValueChanged(ConfigEntry entry, object? value)
+    {
+        if (entry.Assembly != typeof(LogConsolePopup).Assembly)
+        {
+            return;
+        }
+
+        Callable.From(() => ApplyRuntimePresentationSettings(refreshOutput: Visible)).CallDeferred();
+    }
+
     private void OnFilterTextChanged(string value)
     {
         pendingFilterPattern = value ?? string.Empty;
@@ -702,7 +761,7 @@ public partial class LogConsolePopup : Window
 
     private static string T(string key, string fallback)
     {
-        return L10n.Resolve($"EXTENSION.JMCLOGCONSOLE.UI.{key}", fallback);
+        return L10n.Resolve($"EXTENSION.JMCLOGCONSOLE.UI.{key}", fallback, assembly: typeof(LogConsolePopup).Assembly);
     }
 
     private void CopyPlainText()
