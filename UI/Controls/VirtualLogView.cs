@@ -13,6 +13,7 @@ public partial class VirtualLogView : Control
     private const int HorizontalPadding = 8;
     private const int WheelRows = 3;
     private const float HorizontalWheelPixels = 96f;
+    private const float BottomBlankRows = 1f;
     private static readonly Color BackgroundColor = new(0.08f, 0.09f, 0.10f);
     private static readonly Color AlternateRowColor = new(1f, 1f, 1f, 0.025f);
     private static readonly Color SelectionColor = new(0.25f, 0.48f, 0.78f, 0.72f);
@@ -507,7 +508,8 @@ public partial class VirtualLogView : Control
             return 1;
         }
 
-        return Math.Max(1, (int)MathF.Ceiling(GetTextHeight() / rowHeight));
+        float usableHeight = MathF.Max(rowHeight, GetTextHeight() - rowHeight * BottomBlankRows);
+        return Math.Max(1, (int)MathF.Floor(usableHeight / rowHeight));
     }
 
     private int CalculateWrapColumns()
@@ -767,6 +769,12 @@ public partial class VirtualLogView : Control
     {
         position = default;
         if (snapshot.Lines.Count == 0)
+        {
+            return false;
+        }
+
+        float renderedHeight = Math.Min(snapshot.Lines.Count, viewportRows) * rowHeight;
+        if (localPosition.Y < 0f || localPosition.Y >= renderedHeight)
         {
             return false;
         }
