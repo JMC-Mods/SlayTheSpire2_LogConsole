@@ -2,7 +2,7 @@ using System.Text;
 using Godot;
 using MegaCrit.Sts2.Core.Logging;
 
-namespace JmcLogConsole.Core;
+namespace LogConsole.Core;
 
 public static class LogCaptureService
 {

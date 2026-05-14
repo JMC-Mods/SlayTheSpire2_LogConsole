@@ -1,14 +1,14 @@
 using System;
 using Godot;
-using JmcLogConsole.Core;
-using JmcLogConsole.UI.Controls;
-using JmcLogConsole.ViewModels;
+using LogConsole.Core;
+using LogConsole.UI.Controls;
+using LogConsole.ViewModels;
 using JmcModLib.Config;
 using JmcModLib.Config.Entry;
 using JmcModLib.Utils;
 using MegaCrit.Sts2.Core.Logging;
 
-namespace JmcLogConsole.UI;
+namespace LogConsole.UI;
 
 public partial class LogConsolePopup : Window
 {
@@ -382,7 +382,7 @@ public partial class LogConsolePopup : Window
         }
         catch (Exception ex)
         {
-            ModLogger.Warn($"JmcLogConsole 设置原生窗口显示器失败：{ex.Message}");
+            ModLogger.Warn($"LogConsole 设置原生窗口显示器失败：{ex.Message}");
         }
     }
 

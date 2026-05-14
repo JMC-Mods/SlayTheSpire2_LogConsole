@@ -1,6 +1,6 @@
 using Godot;
 
-namespace JmcLogConsole.Core;
+namespace LogConsole.Core;
 
 public static class DisplayScreenOptions
 {

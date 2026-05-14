@@ -1,7 +1,7 @@
 using Godot;
 using MegaCrit.Sts2.Core.Logging;
 
-namespace JmcLogConsole.ViewModels;
+namespace LogConsole.ViewModels;
 
 public readonly record struct LogRenderLine(
     long Sequence,
@@ -9,7 +9,7 @@ public readonly record struct LogRenderLine(
     LogLevel Level,
     Color Color)
 {
-    public static LogRenderLine FromEntry(JmcLogConsole.Core.LogEntry entry, string text)
+    public static LogRenderLine FromEntry(LogConsole.Core.LogEntry entry, string text)
     {
         return new LogRenderLine(entry.Sequence, NormalizeDisplayNewlines(text), entry.Level, ColorFor(entry.Level));
     }

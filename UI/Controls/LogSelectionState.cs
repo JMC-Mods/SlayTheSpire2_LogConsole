@@ -1,4 +1,4 @@
-namespace JmcLogConsole.UI.Controls;
+namespace LogConsole.UI.Controls;
 
 public readonly record struct LogTextPosition(int Row, int Column)
 {

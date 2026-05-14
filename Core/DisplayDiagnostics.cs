@@ -3,7 +3,7 @@ using System.Text;
 using Godot;
 using JmcModLib.Utils;
 
-namespace JmcLogConsole.Core;
+namespace LogConsole.Core;
 
 internal static class DisplayDiagnostics
 {

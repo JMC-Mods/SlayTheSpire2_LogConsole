@@ -1,4 +1,4 @@
-namespace JmcLogConsole.ViewModels;
+namespace LogConsole.ViewModels;
 
 public sealed record LogViewportSnapshot(
     IReadOnlyList<LogRenderLine> Lines,

@@ -1,6 +1,6 @@
-using JmcLogConsole.Core;
+using LogConsole.Core;
 
-namespace JmcLogConsole.ViewModels;
+namespace LogConsole.ViewModels;
 
 public sealed class LogViewportModel
 {

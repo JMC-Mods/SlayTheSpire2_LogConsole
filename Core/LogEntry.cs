@@ -1,6 +1,6 @@
 using MegaCrit.Sts2.Core.Logging;
 
-namespace JmcLogConsole.Core;
+namespace LogConsole.Core;
 
 public readonly record struct LogEntry(
     long Sequence,

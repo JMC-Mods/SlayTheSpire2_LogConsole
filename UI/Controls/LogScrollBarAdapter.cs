@@ -1,6 +1,6 @@
 using Godot;
 
-namespace JmcLogConsole.UI.Controls;
+namespace LogConsole.UI.Controls;
 
 public sealed class LogScrollBarAdapter
 {

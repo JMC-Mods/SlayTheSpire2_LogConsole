@@ -1,11 +1,11 @@
 using System;
 using Godot;
-using JmcLogConsole.Core;
+using LogConsole.Core;
 using JmcModLib.Config.UI;
 using JmcModLib.Utils;
 using MegaCrit.Sts2.Core.Nodes;
 
-namespace JmcLogConsole.UI;
+namespace LogConsole.UI;
 
 public partial class LogConsoleHost : Node
 {
@@ -457,7 +457,7 @@ public partial class LogConsoleHost : Node
         originalGuiEmbedSubwindows = root.GuiEmbedSubwindows;
         embeddingModeChanged = true;
         root.GuiEmbedSubwindows = false;
-        ModLogger.Info("JmcLogConsole 已关闭 Root.GuiEmbedSubwindows，后续 Window 应尝试作为原生系统窗口创建。");
+        ModLogger.Info("LogConsole 已关闭 Root.GuiEmbedSubwindows，后续 Window 应尝试作为原生系统窗口创建。");
         DisplayDiagnostics.LogWindowState("Host.ApplyWindowEmbeddingMode after root.GuiEmbedSubwindows=false", popup, root);
     }
 
@@ -474,12 +474,12 @@ public partial class LogConsoleHost : Node
             if (root != null && !root.IsQueuedForDeletion())
             {
                 root.GuiEmbedSubwindows = originalGuiEmbedSubwindows;
-                ModLogger.Info($"JmcLogConsole 已恢复 Root.GuiEmbedSubwindows={originalGuiEmbedSubwindows}。");
+                ModLogger.Info($"LogConsole 已恢复 Root.GuiEmbedSubwindows={originalGuiEmbedSubwindows}。");
             }
         }
         catch (Exception ex)
         {
-            ModLogger.Warn($"JmcLogConsole 恢复 Root.GuiEmbedSubwindows 失败：{ex.Message}");
+            ModLogger.Warn($"LogConsole 恢复 Root.GuiEmbedSubwindows 失败：{ex.Message}");
         }
         finally
         {

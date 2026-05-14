@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace JmcLogConsole.Core;
+namespace LogConsole.Core;
 
 public sealed class LogLineFormatter
 {

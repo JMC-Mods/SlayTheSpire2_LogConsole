@@ -1,12 +1,12 @@
 using Godot;
-using JmcLogConsole.Core;
-using JmcLogConsole.UI;
+using LogConsole.Core;
+using LogConsole.UI;
 using JmcModLib.Core;
 using JmcModLib.Utils;
 using MegaCrit.Sts2.Core.Modding;
-using ModVersionInfo = JmcLogConsole.Core.VersionInfo;
+using ModVersionInfo = LogConsole.Core.VersionInfo;
 
-namespace JmcLogConsole;
+namespace LogConsole;
 
 [ModInitializer(nameof(Initialize))]
 public partial class MainFile : Node

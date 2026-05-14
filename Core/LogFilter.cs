@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace JmcLogConsole.Core;
+namespace LogConsole.Core;
 
 public sealed class LogFilter
 {

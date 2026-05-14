@@ -1,10 +1,10 @@
 using System.Text;
 using Godot;
-using JmcLogConsole.Core;
-using JmcLogConsole.ViewModels;
+using LogConsole.Core;
+using LogConsole.ViewModels;
 using JmcModLib.Utils;
 
-namespace JmcLogConsole.UI.Controls;
+namespace LogConsole.UI.Controls;
 
 public partial class VirtualLogView : Control
 {
