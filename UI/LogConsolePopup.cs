@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Godot;
 using LogConsole.Core;
 using LogConsole.UI.Controls;
@@ -6,12 +7,14 @@ using LogConsole.ViewModels;
 using JmcModLib.Config;
 using JmcModLib.Config.Entry;
 using JmcModLib.Utils;
+using MegaCrit.Sts2.Core.DevConsole.ConsoleCommands;
 using MegaCrit.Sts2.Core.Logging;
 
 namespace LogConsole.UI;
 
 public partial class LogConsolePopup : Window
 {
+    private const string ExportArchiveNameSuffix = "-LogConsole";
     private static readonly Vector2I DefaultMinSize = new(720, 420);
     private const int MinZoomedLogFontSize = 8;
     private const int MaxZoomedLogFontSize = 96;
@@ -39,6 +42,7 @@ public partial class LogConsolePopup : Window
     private VirtualLogView? output;
     private Label? titleLabel;
     private Button? copyButton;
+    private Button? exportDiagnosticsButton;
     private Button? clearButton;
     private Button? closeButton;
     private Label? filterLabel;
@@ -59,6 +63,7 @@ public partial class LogConsolePopup : Window
     private string lastAppliedLanguage = string.Empty;
     private int lastAppliedRuntimeSettingsHash = int.MinValue;
     private bool firstNativeDpiRefreshDone;
+    private bool exportInProgress;
 
     public override void _Ready()
     {
@@ -521,6 +526,10 @@ public partial class LogConsolePopup : Window
         copyButton.Pressed += CopyPlainText;
         header.AddChild(copyButton);
 
+        exportDiagnosticsButton = new Button();
+        exportDiagnosticsButton.Pressed += ExportDiagnosticsPackage;
+        header.AddChild(exportDiagnosticsButton);
+
         clearButton = new Button();
         clearButton.Pressed += () =>
         {
@@ -729,6 +738,11 @@ public partial class LogConsolePopup : Window
             copyButton.Text = T("COPY_ALL", "复制全部");
         }
 
+        if (exportDiagnosticsButton != null)
+        {
+            ApplyExportDiagnosticsButtonState();
+        }
+
         if (clearButton != null)
         {
             clearButton.Text = T("CLEAR", "清空");
@@ -771,6 +785,56 @@ public partial class LogConsolePopup : Window
     private void CopyPlainText()
     {
         DisplayServer.ClipboardSet(formatter.BuildPlainText(LogCaptureService.Snapshot()));
+    }
+
+    private void ExportDiagnosticsPackage()
+    {
+        if (exportInProgress)
+        {
+            return;
+        }
+
+        exportInProgress = true;
+        ApplyExportDiagnosticsButtonState();
+        _ = ExportDiagnosticsPackageAsync();
+    }
+
+    private async Task ExportDiagnosticsPackageAsync()
+    {
+        string archivePath = string.Empty;
+
+        try
+        {
+            archivePath = GetLogsConsoleCmd.GetBugReportPath(ExportArchiveNameSuffix);
+            ModLogger.Info($"正在导出游戏诊断包：{archivePath}");
+            await GetLogsConsoleCmd.GrabLogs(archivePath);
+            ModLogger.Info($"游戏诊断包导出完成：{archivePath}");
+        }
+        catch (Exception ex)
+        {
+            ModLogger.Error($"导出游戏诊断包失败：{ex}");
+        }
+        finally
+        {
+            exportInProgress = false;
+            ApplyExportDiagnosticsButtonState();
+        }
+    }
+
+    private void ApplyExportDiagnosticsButtonState()
+    {
+        if (exportDiagnosticsButton == null)
+        {
+            return;
+        }
+
+        exportDiagnosticsButton.Disabled = exportInProgress;
+        exportDiagnosticsButton.Text = exportInProgress
+            ? T("EXPORTING_DIAGNOSTICS", "导出中…")
+            : T("EXPORT_DIAGNOSTICS", "导出诊断包");
+        exportDiagnosticsButton.TooltipText = T(
+            "EXPORT_DIAGNOSTICS_TOOLTIP",
+            "调用游戏 getlogs，打包日志、存档、崩溃信息和截图，完成后在文件管理器中定位 ZIP。");
     }
 
     private void CopyFilteredPlainText()

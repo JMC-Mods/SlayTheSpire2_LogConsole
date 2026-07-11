@@ -2,7 +2,7 @@
   "id": "LogConsole",
   "name": "LogConsole",
   "author": "JMC",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "显示一个日志控制台，可配置按键打开/关闭（手柄去Steam输入配置），有问题反馈B站JMC丶或者Github，二次分发需注明来源",
   "has_pck": true,
   "has_dll": true,
